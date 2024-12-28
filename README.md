@@ -33,3 +33,26 @@ sops --config .sops/sops.yaml -d -i .sops/prod.env
 ```
 sops --config .sops/sops.yaml -e -i .sops/prod.env
 ```
+
+## S3 Public URL Structure
+
+The public URL for accessing objects in your S3 bucket follows this pattern:
+```
+https://<bucket-name>.s3.<region>.amazonaws.com/<object-key>
+```
+
+Where:
+- `<bucket-name>`: Your S3 bucket name
+- `<region>`: The AWS region where your bucket is located (e.g., us-east-1, eu-west-1)
+- `<object-key>`: The full path and name of your object, including any folder structure
+
+### Example
+If:
+- Your bucket name is `my-awesome-bucket`
+- The object key is `images/photo.jpg`
+- Your bucket is in the `us-west-2` region
+
+The public URL would be:
+```
+https://my-awesome-bucket.s3.us-west-2.amazonaws.com/images/photo.jpg
+```
