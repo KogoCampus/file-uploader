@@ -1,0 +1,27 @@
+# Git
+.git
+.gitignore
+
+# Environment
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+README.md
+Dockerfile
+docker-compose.yml
+*.log 

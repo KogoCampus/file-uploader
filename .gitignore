@@ -1,0 +1,6 @@
+static/node_modules/
+static/dist/
+__pycache__/
+.env 
+dist/
+node_modules/

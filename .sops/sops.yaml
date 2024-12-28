@@ -1,0 +1,4 @@
+creation_rules:
+  - path_regex: .*\.env$
+    encrypt_file_extension: .enc
+    kms: arn:aws:kms:us-west-2:992382730467:key/c72349ae-bda2-4c9d-b21a-292d8805e44f
