@@ -11,7 +11,7 @@ import json
 router = APIRouter(prefix="/images", tags=["images"])
 s3_service = S3Service()
 
-@router.post("/")
+@router.post("")
 async def upload_image(
     file: UploadFile = File(...),
     fileName: Optional[str] = Form(None)
@@ -155,45 +155,18 @@ async def get_image(image_id: str):
     data = await s3_service.load_metadata(image_key)
     return json.loads(data["Body"].read())
 
-# @router.delete("/{image_id}/{image_name}")
-# async def delete_image(
-#     image_id: str,
-#     image_name: str,
-#     dimensions: Optional[str] = Query(..., alias="dimensions"),
-#     offset: Optional[str] = Query("0,0", alias="offset")
-# ):
-#     """
-#     Delete an image from S3.
-#     """
-#     if dimensions:
-#         try:
-#             dimensions = [int(i) for i in dimensions.strip("[]").split(",")]
-#         except ValueError:
-#             raise HTTPException(status_code=400, detail="Invalid dimensions format")
-        
-#         try:
-#             offset = [int(i) for i in offset.strip("[]").split(",")]
-#         except ValueError:
-#             raise HTTPException(status_code=400, detail="Invalid offset format")
-
-#         if len(dimensions) != 2:
-#             raise HTTPException(status_code=400, detail="Invalid dimensions")
-#         if len(offset) != 2:
-#             raise HTTPException(status_code=400, detail="Invalid offset")
-        
-#         dims = f"{dimensions[0]}x{dimensions[1]}"
-#         offs = f"offset{offset[0]}x{offset[1]}"
-
-#         prefix = f"images/{image_id}/crop/{dims}/{offs}/"
-#     else: 
-#         prefix = f"images/{image_id}/origin/"
-        
-#     await s3_service.delete_file(prefix + image_name)
-#     return {
-#         "message": "Image deleted successfully",
-#         "filename": image_id,
-#         "fileid": image_name
-#     } 
+@router.delete("/{image_id}")
+async def delete_image(
+    image_id: str,
+):
+    """
+    Delete an image from S3.
+    """   
+    await s3_service.delete_file(image_id)
+    return {
+        "message": "Image deleted successfully",
+        "image_id": image_id,
+    } 
 
 def crop_image_from_stream(file_content: bytes, dimensions: list[int], offset: Optional[list[int]] = [0, 0]) -> BytesIO:
     # Open the image using PIL

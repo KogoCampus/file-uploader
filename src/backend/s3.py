@@ -93,10 +93,28 @@ class S3Service:
     async def load_metadata(self, file_key: str) -> dict:
         return self.s3_client.get_object(Bucket=self.bucket_name, Key=file_key)
 
-    # async def delete_file(self, object_key: str):
-    #     """Delete a file from S3"""
-    #     found = self.s3_client.get_object(Bucket=self.bucket_name, Key=object_key)
-    #     if not found: raise HTTPException(status_code=404, detail="No matching file found in S3")
-    #     deleted = self.s3_client.delete_object(Bucket=self.bucket_name, Key=object_key)
-    #     if not deleted["HTTPStatusCode"] == 204:
-    #         raise HTTPException(status_code=500, detail="Failed to delete the file")
+    async def delete_file(self, file_id: str):
+        """Delete a file from S3"""
+        prefix = f"images/{file_id}/"
+        try:
+            # List all objects with the given prefix
+            response = self.s3_client.list_objects_v2(Bucket=self.bucket_name, Prefix=prefix)
+            if 'Contents' not in response:
+                raise HTTPException(status_code=404, detail="No files found in the specified folder")
+            # Collect all keys to delete
+            keys_to_delete = [{'Key': obj['Key']} for obj in response['Contents']]
+
+            # Perform bulk delete
+            delete_response = self.s3_client.delete_objects(
+                Bucket=self.bucket_name,
+                Delete={'Objects': keys_to_delete}
+            )
+            # Check for errors in the deletion response
+            if 'Errors' in delete_response:
+                logger.error(f"Errors occurred during deletion: {delete_response['Errors']}")
+                raise HTTPException(status_code=500, detail="Failed to delete some or all files")
+
+            logger.info(f"Successfully deleted folder: {prefix}")
+        except ClientError as e:
+            logger.error(f"Error deleting folder {prefix}: {e}")
+            raise HTTPException(status_code=500, detail="Failed to delete folder")
