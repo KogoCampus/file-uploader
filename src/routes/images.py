@@ -1,6 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, Form, Query, HTTPException
 from typing import Optional
-from uuid import uuid4
 from PIL import Image
 import os
 from io import BytesIO
@@ -8,10 +7,10 @@ from ..backend.s3 import S3Service
 from ..config import settings
 import json
 
-router = APIRouter(prefix="/images", tags=["images"])
+image_router = APIRouter(prefix="/images", tags=["images"])
 s3_service = S3Service()
 
-@router.post("")
+@image_router.post("")
 async def upload_image(
     file: UploadFile = File(...),
     fileName: Optional[str] = Form(None)
@@ -27,23 +26,15 @@ async def upload_image(
         raise HTTPException(status_code=400, detail="No file provided")
 
     # Validate file type
-    content_type = file.content_type
-    if not content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail="File must be an image")
+    content_type = file.content_type #images/jpeg or images/png expected
+    await s3_service.get_file_type(file, "images")
 
     # Check file size
     file.file.seek(0, os.SEEK_END)
     file_size = file.file.tell()
     file.file.seek(0)
-
     if file_size > settings.max_file_size:
         raise HTTPException(status_code=400, detail="File too large")
-    
-    # Generate a unique imageId
-    while True:
-        image_id = str(uuid4())
-        if not await s3_service.check_image_id_exists(image_id):
-            break
 
     # Use provided filename or generate from original
     if fileName:
@@ -52,7 +43,9 @@ async def upload_image(
     else:
         final_filename = file.filename
 
-    url = await s3_service.upload_file(file, image_id, final_filename)
+    response = await s3_service.upload_file(file, final_filename)
+    image_id = response["file_id"]
+    url = response["url"]
 
     # create a metadata.json inside images_id/ folder
     filedata = await s3_service.get_filedata(f"images/{image_id}/origin/{final_filename}")
@@ -60,7 +53,7 @@ async def upload_image(
     metadata['url'] = url
     metadata['metadata'] = filedata
     metadata["variants"] = {}
-    await s3_service.save_metadata(image_id, metadata)
+    await s3_service.save_metadata(image_id, "images", metadata)
 
     return {
         "imageId": image_id,
@@ -70,7 +63,7 @@ async def upload_image(
         "content_type": content_type
     }
 
-@router.post("/{image_id}/crop/{file_name}")
+@image_router.post("/crop/{image_id}/{file_name}")
 async def crop_image(
     image_id: str,
     file_name: str,
@@ -101,7 +94,7 @@ async def crop_image(
     if len(offset) != 2:
         raise HTTPException(status_code=400, detail="Invalid offset")
     
-    if not await s3_service.check_image_id_exists(image_id):
+    if not await s3_service.check_file_id_exists(image_id, "images"):
         raise HTTPException(status_code=404, detail="Image ID not found in S3")
     
     original_key = f"images/{image_id}/origin/{file_name}"
@@ -127,7 +120,8 @@ async def crop_image(
     offs = f"offset{offset[0]}x{offset[1]}"
 
     # create a url using s3_service.upload_file with the new file(cropped file)
-    url = await s3_service.upload_file(cropped_file, image_id, file_name, ["crop/", f"{dims}/", f"{offs}"])
+    response = await s3_service.upload_file(cropped_file, file_name, ["crop/", f"{dims}/", f"{offs}"], image_id)
+    url = response["url"]
 
     # update the metadata.json inside images_id/ folder with the new cropped image
     newfile_metadata = await s3_service.get_filedata(f"images/{image_id}/crop/{dims}/{offs}/{file_name}")
@@ -136,7 +130,7 @@ async def crop_image(
     if "crop" not in metadata["variants"]:
         metadata["variants"]["crop"] = {}
     metadata["variants"]["crop"][f"{dims}_{offs}"] = newfile_metadata
-    await s3_service.save_metadata(image_id, metadata)
+    await s3_service.save_metadata(image_id, "images", metadata)
 
     return {
         "imageId": image_id,
@@ -146,7 +140,7 @@ async def crop_image(
         "content_type": content_type
     }
 
-@router.get("/{image_id}")
+@image_router.get("/{image_id}")
 async def get_image(image_id: str):
     """
     Get the data of the image from S3.
@@ -155,7 +149,7 @@ async def get_image(image_id: str):
     data = await s3_service.load_metadata(image_key)
     return json.loads(data["Body"].read())
 
-@router.delete("/{image_id}")
+@image_router.delete("/{image_id}")
 async def delete_image(
     image_id: str,
 ):

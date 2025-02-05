@@ -1,13 +1,21 @@
 import boto3
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 from botocore.exceptions import ClientError
 from fastapi import HTTPException, UploadFile
 from io import BytesIO
 from ..config import settings
+from uuid import uuid4
+from typing import Dict
 import logging
+import asyncio
 from pathlib import Path
 import json
+from .file_types import ALLOWED_FILE_TYPES
 
 logger = logging.getLogger(__name__)
+
+scheduler = AsyncIOScheduler()
 
 class S3Service:
     def __init__(self):
@@ -18,22 +26,50 @@ class S3Service:
             region_name=settings.aws_region
         )
         self.bucket_name = settings.s3_bucket_name
+        self.file_staling_jobs: Dict[str, asyncio.Task] = {} # Dictionary for storing file_id and its scheduled task
     
-    async def check_image_id_exists(self, image_id: str) -> bool:
-        """Check if an image with the given image_id exists in S3"""
-        prefix = f"images/{image_id}/"
+    async def start_scheduler(self):
+        """
+        Start scheduler if not running
+        """
+        if not scheduler.running:
+            scheduler.start()
+            logger.info("Scheduler started.")
+    
+    async def check_file_id_exists(self, file_id: str, file_type: str) -> bool:
+        """Check if a file with the given file_id exists in S3"""
+        prefix = f"{file_type}/{file_id}/"  
         try:
             response = self.s3_client.list_objects_v2(
                 Bucket=self.bucket_name,
                 Prefix=prefix,
                 MaxKeys=1  # at least one exists
             )
-            return 'Contents' in response  # return truㄷ if such file exists
+            return 'Contents' in response  # return true if such file exists
         except ClientError as e:
-            logger.error(f"Error checking for imageId {image_id}: {e}")
-            raise HTTPException(status_code=500, detail="Failed to check image ID")
+            logger.error(f"Error checking for file ID {file_id}: {e}")
+            raise HTTPException(status_code=500, detail="Failed to check file ID")
+    
+    async def get_file_type(self, file: UploadFile, file_type: str=None) -> str:
+        """
+        Get the file type based on the content type.
+        If file_type is provided, ensure the file matches the expected type.
+        """
+        content_type = file.content_type
+        if content_type in ALLOWED_FILE_TYPES:
+            if file_type is not None and file_type != ALLOWED_FILE_TYPES[content_type]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"File must be a type of {file_type}, but got {ALLOWED_FILE_TYPES[content_type]}"
+                )
+            return ALLOWED_FILE_TYPES[content_type]
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type: {content_type}. Allowed types are: {list(ALLOWED_FILE_TYPES.keys())}"
+            )
 
-    async def upload_file(self, file: UploadFile, file_id: str, filename: str, suffix: list[str]=["origin/"]) -> str:
+    async def upload_file(self, file: UploadFile, filename: str, suffix: list[str]=["origin/"], file_id: str = None) -> dict:
         """Upload a file to S3"""
         try:
             # Read the file content into memory (async)
@@ -43,18 +79,27 @@ class S3Service:
             file_stream = BytesIO(file_content)
             content_type = file.content_type
 
+            # Get the file type
+            if content_type.startswith('image/'):  # images or gifs
+                if content_type.endswith("gif"):
+                    file_type = "gifs"
+                else: file_type = "images"
+            elif content_type.startswith('video/'):  # videos
+                file_type = "videos"
+            else:
+                raise HTTPException(status_code=400, detail="Unsupported file type")
+                
+            if not file_id:
+                # Generate a unique file ID
+                while True:
+                    file_id = str(uuid4())
+                    if not await self.check_file_id_exists(file_id, file_type):
+                        break
+
             # Generate s3 key using path
             path = [f"{file_id}/"] + suffix + [filename]
             s3_key = str(Path(*path)).lstrip('/')
-
-             # Create the object key using imageId
-            if content_type.startswith('image/'):  # Checks if the content type starts with 'image/'
-                file_type = "images/"
-            elif content_type.startswith('video/'):  # Checks if the content type starts with 'video/'
-                file_type = "videos/"
-            else:
-                raise HTTPException(status_code=400, detail="Unsupported file type")
-            final_key = file_type + s3_key
+            final_key = file_type + '/' + s3_key
 
             #upload the file
             self.s3_client.upload_fileobj(
@@ -65,16 +110,21 @@ class S3Service:
                     "ContentType": content_type
                 }
             )
-            return f"https://{self.bucket_name}.s3.amazonaws.com/{final_key}"
+            url = f"https://{self.bucket_name}.s3.amazonaws.com/{final_key}"
+
+            return {
+                "file_id": file_id,
+                "url": url,
+            }
         except ClientError as e:
             logger.error(f"Error uploading file to S3: {e}")
             raise HTTPException(status_code=500, detail="Failed to upload file")
 
-    async def save_metadata(self, image_id: str, metadata: dict):
+    async def save_metadata(self, file_id: str, file_type: str, metadata: dict):
         """
         Save the metadata.json file back to S3.
         """
-        key = f"images/{image_id}/metadata.json"
+        key = f"{file_type}/{file_id}/metadata.json"
         self.s3_client.put_object(
             Bucket=self.bucket_name,
             Key=key,
@@ -118,3 +168,31 @@ class S3Service:
         except ClientError as e:
             logger.error(f"Error deleting folder {prefix}: {e}")
             raise HTTPException(status_code=500, detail="Failed to delete folder")
+    
+    async def schedule_staling(self, file_id: str, delay_minutes: int = 10):
+        """
+        Schedule a deletion of a file after delay_mintues
+        """
+        async def wait_and_delete():
+            await asyncio.sleep(delay_minutes * 60)  # wait for delay_minutes
+            if file_id in self.file_staling_jobs:  # if file_id is still in staling jobs after delay
+                try:
+                    await self.delete_file(file_id)
+                    logger.info(f"Scheduled deletion of file: {file_id} completeted")
+                except Exception as e:
+                    logger.error(f"Error deleting file {file_id}: {e}")
+                finally:
+                    self.file_staling_jobs.pop(file_id, None)
+        
+        # update the task for the file id
+        self.file_staling_jobs[file_id] = asyncio.create_task(wait_and_delete())
+
+    async def keep_file(self, file_id: str):
+        """
+        Keep the file.
+        """
+        if file_id in self.file_staling_jobs:
+            self.file_staling_jobs[file_id].cancel()  # cancel auto delete
+            self.file_staling_jobs.pop(file_id, None)
+        else:
+            raise HTTPException(status_code=404, detail="File ID not found in staling jobs")
