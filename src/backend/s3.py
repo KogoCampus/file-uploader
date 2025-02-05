@@ -80,14 +80,7 @@ class S3Service:
             content_type = file.content_type
 
             # Get the file type
-            if content_type.startswith('image/'):  # images or gifs
-                if content_type.endswith("gif"):
-                    file_type = "gifs"
-                else: file_type = "images"
-            elif content_type.startswith('video/'):  # videos
-                file_type = "videos"
-            else:
-                raise HTTPException(status_code=400, detail="Unsupported file type")
+            file_type = self.get_file_type(file)
                 
             if not file_id:
                 # Generate a unique file ID
