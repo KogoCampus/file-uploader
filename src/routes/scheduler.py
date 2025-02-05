@@ -41,10 +41,12 @@ async def schedule_file(
     filedata = await s3_service.get_filedata(f"{file_type}/{file_id}/origin/{final_filename}")
     metadata = {}
     metadata['url'] = url
+    metadata['file_id'] = file_id
+    metadata['filename'] = final_filename
     metadata['metadata'] = filedata
     metadata["variants"] = {}
     await s3_service.save_metadata(file_id,f"{file_type}", metadata)
-    await s3_service.schedule_staling(file_id, 1)
+    await s3_service.schedule_staling(file_id, 10)
     return {
         "file_id": file_id,
         "filename": final_filename,

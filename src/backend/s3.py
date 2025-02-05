@@ -80,7 +80,7 @@ class S3Service:
             content_type = file.content_type
 
             # Get the file type
-            file_type = self.get_file_type(file)
+            file_type = await self.get_file_type(file)
                 
             if not file_id:
                 # Generate a unique file ID
@@ -92,7 +92,8 @@ class S3Service:
             # Generate s3 key using path
             path = [f"{file_id}/"] + suffix + [filename]
             s3_key = str(Path(*path)).lstrip('/')
-            final_key = file_type + '/' + s3_key
+            final_key = file_type + "/" + s3_key
+            
 
             #upload the file
             self.s3_client.upload_fileobj(
