@@ -51,6 +51,8 @@ async def upload_image(
     filedata = await s3_service.get_filedata(f"images/{image_id}/origin/{final_filename}")
     metadata = {}
     metadata['url'] = url
+    metadata['file_id'] = image_id
+    metadata['filename'] = final_filename
     metadata['metadata'] = filedata
     metadata["variants"] = {}
     await s3_service.save_metadata(image_id, "images", metadata)
