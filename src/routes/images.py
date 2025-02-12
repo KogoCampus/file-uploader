@@ -58,7 +58,7 @@ async def upload_image(
     await s3_service.save_metadata(image_id, "images", metadata)
 
     return {
-        "imageId": image_id,
+        "file_id": image_id,
         "filename": final_filename,
         "url": url,
         "size": file_size,
@@ -135,7 +135,7 @@ async def crop_image(
     await s3_service.save_metadata(image_id, "images", metadata)
 
     return {
-        "imageId": image_id,
+        "file_id": image_id,
         "filename": file_name,
         "url": url,
         "size": file_size,
@@ -161,7 +161,7 @@ async def delete_image(
     await s3_service.delete_file(image_id)
     return {
         "message": "Image deleted successfully",
-        "image_id": image_id,
+        "file_id": image_id,
     } 
 
 def crop_image_from_stream(file_content: bytes, dimensions: list[int], offset: Optional[list[int]] = [0, 0]) -> BytesIO:
