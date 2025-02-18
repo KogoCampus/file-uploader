@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .routes import images
-from .routes import scheduler
+from .routes import files
+from .routes import stale
 from .backend.s3 import scheduler as s3_scheduler
 
 app = FastAPI(
@@ -20,8 +20,8 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(images.image_router)
-app.include_router(scheduler.schedule_router)
+app.include_router(files.file_router)
+app.include_router(stale.stale_router)
 
 # Start scheduler
 @app.on_event("startup")
